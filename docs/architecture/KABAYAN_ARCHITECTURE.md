@@ -146,4 +146,5 @@ M1 can proceed alongside finalization of the ARIP mapping. M2 depends on M1 iden
 - [x] Milestones and dependencies are documented.
 - [x] Establish the dedicated `andalus-ai/kabayan` repository as the home for Kabayan product architecture.
 - [x] Add repository-level engineering guidance in `AGENTS.md` and a root project overview.
-- [ ] Validate the proposed ARIP mapping against current Andalus Runtime REST/gRPC endpoints before freezing contracts.
+- [x] Inspect current Andalus Runtime REST/gRPC surfaces and document the operation-to-endpoint mapping plus verified gaps.
+- [ ] Trace identifier propagation, service authorization and stream semantics before freezing client contracts.
