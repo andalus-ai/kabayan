@@ -1,7 +1,7 @@
 # Kabayan: Personal Agent Architecture
 
 Status: M0 architecture baseline (proposed)
-Owner: Kabayan product repository (to be created)
+Owner: `andalus-ai/kabayan`
 Related projects: Andalus Framework, Andalus Runtime, Aljabr, Cifr, Farabi
 
 ## Mission
@@ -144,5 +144,6 @@ M1 can proceed alongside finalization of the ARIP mapping. M2 depends on M1 iden
 - [x] Internal communication strategy reuses existing Andalus foundations.
 - [x] Security and approval invariants are explicit.
 - [x] Milestones and dependencies are documented.
-- [ ] Create the dedicated `andalus-ai/kabayan` repository and move this document into its architecture documentation.
+- [x] Establish the dedicated `andalus-ai/kabayan` repository as the home for Kabayan product architecture.
+- [x] Add repository-level engineering guidance in `AGENTS.md` and a root project overview.
 - [ ] Validate the proposed ARIP mapping against current Andalus Runtime REST/gRPC endpoints before freezing contracts.
