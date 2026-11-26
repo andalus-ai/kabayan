@@ -5,6 +5,8 @@ Owners: Andalus Framework (portable contracts), Andalus Runtime (dispatch and tr
 
 ## 1. Purpose
 
+The source-verified mapping of these logical operations to the current Runtime implementation is maintained in [ARIP_IMPLEMENTATION_MAPPING.md](ARIP_IMPLEMENTATION_MAPPING.md). Treat that mapping as the evidence baseline; operations without a verified endpoint or lifecycle contract remain proposals, not implemented API guarantees.
+
 ARIP defines a typed, efficient interaction profile for product runtimes that need to invoke and manage work on Andalus Runtime. Kabayan is the first motivating client, but ARIP must remain product-neutral.
 
 ARIP is an interaction profile over existing Andalus communication and runtime foundations. It is **not** a new network stack, wire protocol, agent discovery system, or replacement for MCP, A2A or ANP.
