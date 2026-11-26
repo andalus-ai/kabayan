@@ -51,7 +51,7 @@ Do not log secrets, access tokens, raw sensitive content or unnecessary personal
 
 ## Andalus integration / ARIP
 
-Use `docs/architecture/ARIP_INTERACTION_PROFILE.md` as a proposal, not a frozen protocol. Before implementing client contracts:
+Use `docs/architecture/ARIP_INTERACTION_PROFILE.md` as a proposal, not a frozen protocol. Use `docs/architecture/ARIP_IMPLEMENTATION_MAPPING.md` as the source-audited endpoint map, and keep its verified behavior separate from unresolved gaps. Before implementing client contracts:
 1. Inspect current Framework communication contracts and Runtime REST/gRPC APIs.
 2. Map each required operation to an existing endpoint or service.
 3. Record actual gaps and compatibility implications.
