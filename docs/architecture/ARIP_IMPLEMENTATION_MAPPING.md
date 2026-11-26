@@ -100,12 +100,15 @@ Inspected sources:
 - `api/andalus-api-rest/src/main/java/tech/kayys/andalus/api/rest/MemoryVisualizationResource.java`
 - `api/andalus-api-grpc/src/main/proto/andalus_api.proto` (`MemoryVisualizationService`)
 - `modules/andalus-hermes/src/main/java/tech/kayys/andalus/memory/MemoryExportService.java`
+- `modules/andalus-hermes/src/main/java/tech/kayys/andalus/hermes/MemoryPortabilityResource.java`
 
 Memory visualization exposes overview, graph, vectors, working state, procedural view, timeline and full-view projections. It is not a record-level personal memory CRUD API.
 
 The inspected REST visualization resource accepts user/tenant/workspace identifiers as query parameters and sets wildcard CORS headers. This audit did not establish the authorization behavior of every underlying projection/store. **Do not expose this surface as Kabayan's personal-memory API until server-side tenant/owner enforcement and deployment CORS policy are verified.**
 
-The export service aggregates records from registered providers and includes agent/user/tenant identifiers in snapshot metadata. In the inspected implementation, provider export is invoked by agent ID and provider exceptions are swallowed. That is insufficient evidence for a safe user-scoped export/delete contract. Kabayan must not promise complete export or deletion based solely on this service.
+The REST portability resource exposes export, import, backup and backup-list endpoints, but no deletion endpoint was found in this resource. It accepts user/tenant identifiers as query parameters for export/backup and does not itself resolve them from an authenticated principal. Import validates the snapshot agent ID against the path but does not visibly bind the snapshot to an authenticated owner/tenant in this resource. The backup endpoint accepts a caller-supplied filesystem path. Deployment-wide authentication/authorization filters may exist elsewhere, but they were not verified in this source audit; do not infer that these parameters are trusted or that the custom path is safe.
+
+The export service aggregates records from registered providers and includes agent/user/tenant identifiers in snapshot metadata. In the inspected implementation, provider export is invoked by agent ID and provider exceptions are swallowed. That is insufficient evidence for a complete, user-scoped export/delete contract. Kabayan must not promise complete export or deletion based solely on this service.
 
 ## 4. Recommended Kabayan adapter boundary
 
