@@ -1,150 +1,395 @@
 # Kabayan: Personal Agent Architecture
 
-Status: M0 architecture baseline (proposed)
+Status: M0 architecture baseline (proposed; implementation contracts remain subject to source verification)  
 Owner: `andalus-ai/kabayan`
-Related projects: Andalus Framework, Andalus Runtime, Aljabr, Cifr, Farabi
 
-## Mission
+## 1. Mission
 
-Kabayan is a persistent personal AI agent that helps one person understand, organize, plan, and act across their digital life. It should build continuity across conversations and projects, offer useful proactive assistance, and remain understandable and controllable by its owner.
+Kabayan is a persistent personal AI agent that helps one person understand, organize, plan and act across their digital life. It provides continuity, personal memory, proactive assistance and policy-controlled integrations.
 
-Kabayan is a product and personal-intelligence layer. It is not a replacement for Andalus, a general-purpose agent runtime, nor a new framework.
+Kabayan is a product/personal-intelligence layer, not a general-purpose agent runtime or framework. All Kabayan-specific product semantics, personal-data policy and user experience belong in this repository.
 
-## System boundaries
+### Product principles
+1. Continuity with user control.
+2. Grounded personalization: distinguish user-confirmed facts, source-observed facts and model inferences.
+3. Proactivity without surprise: suggestions/reminders may be proactive; consequential external actions require authorization.
+4. Headless core: domain behavior does not depend on UI.
+5. Explainability: expose why a memory, suggestion or action exists.
+6. Least privilege and graceful degradation.
+
+## 2. Ecosystem boundaries
 
 | Project | Owns | Must not absorb |
 |---|---|---|
-| Andalus Framework | Reusable Java contracts, SPIs, portable agent capabilities, communication abstractions, memory/knowledge/security contracts | Kabayan product policy, personal UI, user-specific profile semantics |
-| Andalus Runtime | Agent execution, orchestration, capability dispatch, run lifecycle, runtime policy, deployment, operational observability | Personal-assistant product experience or Kabayan's personal memory policy |
-| Kabayan | Personal identity/profile, personal memory semantics, user-facing assistant, proactive personal workflows, personal integrations and approvals | General agent runtime, duplicate tool/plugin lifecycle, duplicate transport stack |
-| Aljabr | Shared mathematical, statistical, ML and computational capabilities | Personal assistant orchestration or product workflows |
-| Cifr / Farabi | Their specialist product capabilities | Kabayan's core identity and personal memory |
+| Andalus Framework | Reusable Java contracts, SPIs, communication abstractions | Kabayan product policy, personal UI/profile semantics |
+| Andalus Runtime | Execution, orchestration, capability dispatch, run lifecycle, runtime policy and operations | Personal-assistant experience or personal memory policy |
+| Kabayan | Personal profile, memory semantics, user experience, proactive workflows, integrations and approvals | General agent runtime, duplicate capability lifecycle or transport |
+| Aljabr | Shared mathematical, statistical, ML and computational capabilities | Personal-assistant orchestration |
+| Cifr / Farabi | Specialist coding and research/analytics products | Kabayan's identity and personal memory |
 
-Kabayan consumes framework contracts and invokes Andalus Runtime. It may connect to Cifr, Farabi, and other ecosystem products through declared capabilities and policy-controlled integrations.
+Kabayan consumes Andalus through the supported shared interaction boundary. **ARIP is owned/evolved separately from this Kabayan product design.** This document does not redefine its wire format, service names or transport. MCP remains for external tool interoperability, not a mandatory internal hop. A2A and ANP retain their separate agent-to-agent/network roles.
 
-## Logical architecture
+## 3. Logical architecture
 
 ```mermaid
 flowchart TB
-  U[Person] --> UX[Kabayan Experience]
-  UX --> KRT[Kabayan Personal Runtime]
-  KRT --> PROF[Profile and Preferences]
-  KRT --> MEM[Personal Memory]
-  KRT --> PLAN[Goals, Tasks and Plans]
-  KRT --> PRO[Proactive Intelligence]
-  KRT --> CONN[Personal Connectors]
-  KRT --> ADP[Andalus Integration Adapter]
-  ADP --> ARIP[ARIP interaction profile]
-  ARIP --> AND[Andalus Runtime]
-  AND --> FW[Andalus Framework contracts]
-  AND --> CAP[Registered Agent Capabilities]
-  CAP --> ALJ[Aljabr]
-  CAP --> CIFR[Cifr]
-  CAP --> FAR[Farabi]
-  AND --> AUD[Policy, Approval and Audit]
-  KRT --> AUD
+  PERSON[Person / owner]
+  subgraph UX["Kabayan experience"]
+    WEB[Web] 
+    DESKTOP[Desktop]
+    VOICE[Voice]
+    API[Product API]
+  end
+  subgraph K["Kabayan product services"]
+    COORD[Personal-agent coordinator]
+    SESSION[Conversation and session service]
+    PROFILE[Profile and preferences]
+    MEMORY[Personal memory]
+    PLAN[Goals, tasks and commitments]
+    PROACTIVE[Triggers and reminders]
+    CONNECTOR[Connector gateway]
+    POLICY[Consent, policy and approvals]
+    AUDIT[Activity and audit trail]
+  end
+  subgraph ADAPTER["Kabayan integration boundary"]
+    CLIENT[Typed Andalus client facade]
+    LOCAL[In-process binding]
+    REMOTE[gRPC / REST bindings]
+  end
+  subgraph A["Neutral Andalus platform"]
+    RUNTIME[Andalus Runtime]
+    EXEC[Execution / run lifecycle]
+    CAP[Registered capabilities]
+    FW[Andalus Framework contracts]
+  end
+  subgraph ECOSYSTEM["Specialist capabilities"]
+    ALJ[Aljabr]
+    CIFR[Cifr]
+    FAR[Farabi]
+    MCP[External MCP tools]
+  end
+  PERSON --> WEB
+  PERSON --> DESKTOP
+  PERSON --> VOICE
+  PERSON --> API
+  WEB --> COORD
+  DESKTOP --> COORD
+  VOICE --> COORD
+  API --> COORD
+  COORD --> SESSION
+  COORD --> PROFILE
+  COORD --> MEMORY
+  COORD --> PLAN
+  COORD --> PROACTIVE
+  COORD --> CONNECTOR
+  COORD --> POLICY
+  COORD --> CLIENT
+  SESSION --> MEMORY
+  PROACTIVE --> PLAN
+  CONNECTOR --> POLICY
+  POLICY --> AUDIT
+  MEMORY --> AUDIT
+  CLIENT --> LOCAL
+  CLIENT --> REMOTE
+  LOCAL --> RUNTIME
+  REMOTE --> RUNTIME
+  RUNTIME --> EXEC
+  RUNTIME --> CAP
+  RUNTIME --> FW
+  CAP --> ALJ
+  CAP --> CIFR
+  CAP --> FAR
+  CAP --> MCP
 ```
 
-The diagram shows logical ownership, not a mandatory deployment topology. Kabayan and Andalus may run in one JVM, separate local processes, or remote infrastructure.
+The diagram expresses logical ownership, not a one-component-per-module or one-service-per-process requirement.
 
-## Kabayan modules
+| Component | Owns | Does not own |
+|---|---|---|
+| Coordinator | Turn user intent into bounded work and coordinate Kabayan services | Reimplementing Andalus orchestration |
+| Session service | Kabayan conversation/session identity and external ID mapping | Andalus execution state |
+| Profile | Explicit user-provided identity, preferences and settings | Promoting inferred facts to confirmed profile |
+| Memory | Capture policy, provenance, retrieval, correction and deletion | Generic runtime knowledge infrastructure |
+| Planner | User goals, tasks, commitments and plans | All runtime scheduling |
+| Proactive service | Trigger evaluation, suggestions and reminders | Unbounded autonomous execution |
+| Connector gateway | Account connections, scopes, ingestion and actions | Treating connection as blanket consent |
+| Consent/approval | Product consent UX and Kabayan policy | Duplicating Runtime authorization |
+| Andalus client | Map use cases to verified runtime operations | New wire protocol or policy bypass |
 
-Keep modules independently usable and avoid requiring the UI for headless deployments.
+## 4. Deployment topology
 
-| Module | Responsibility |
+```mermaid
+flowchart LR
+  subgraph DEVICE["User device"]
+    UI[Web / desktop / voice]
+  end
+  subgraph KDEPLOY["Kabayan deployment"]
+    EDGE[API edge]
+    APP[Headless product services]
+    DB[(Product store)]
+    INDEX[(Memory index)]
+    QUEUE[(Durable jobs / events)]
+    VAULT[(Secret vault)]
+  end
+  subgraph RDEPLOY["Andalus deployment"]
+    AR[Andalus Runtime]
+    STATE[(Runtime execution state)]
+    PROVIDERS[Capability providers]
+  end
+  subgraph OUTSIDE["External systems"]
+    ACCOUNTS[Mail / calendar / files]
+    MCP[External MCP servers]
+    PRODUCTS[Cifr / Farabi / Aljabr]
+  end
+  UI <--> EDGE
+  EDGE <--> APP
+  APP <--> DB
+  APP <--> INDEX
+  APP <--> QUEUE
+  APP <--> VAULT
+  APP <--> AR
+  AR <--> STATE
+  AR --> PROVIDERS
+  PROVIDERS --> PRODUCTS
+  APP <--> ACCOUNTS
+  APP <--> MCP
+```
+
+Constraints:
+- Co-located and remote deployments must preserve equivalent authorization and audit semantics.
+- Kabayan owns personal data, grants and preferences; Andalus owns runtime execution state.
+- Store refresh/access tokens only in a secret store, never prompts, memory records or logs.
+- Durable reminders/jobs require durable persistence, not an in-memory timer.
+- Local-first is a future topology option, not an M1 assumption.
+
+## 5. Domain model and identity
+
+| Concept | Meaning | Authority |
+|---|---|---|
+| OwnerId / PersonalSpaceId | Person and personal-data isolation boundary | Kabayan identity boundary |
+| ConversationId / KabayanSessionId | Conversation and continuity lifecycle | Kabayan |
+| RuntimeSessionRef | External session ID plus provider and ID kind | Andalus; mapped by Kabayan |
+| RunRef | External run/execution reference | Andalus; mapped by Kabayan |
+| MemoryId | Retained memory item | Kabayan |
+| ConnectorAccountId / GrantId | External account and scoped permission | Kabayan |
+| ApprovalId | One approval lifecycle | Kabayan product domain |
+| JobId | Durable proactive/scheduled work | Kabayan |
+
+A Kabayan session is not automatically an Andalus project session or operator session. Persist an explicit mapping with external system, ID kind, owner scope, lifecycle state and mapping version. Keep run, execution, attempt and checkpoint references distinct until equivalence is proven.
+
+Invariants:
+- Every personal-data record has owner and personal-space scope.
+- External IDs are namespaced by provider and resource kind.
+- Caller-supplied owner/tenant values are never authentication.
+- Export/deletion traverse the full owner-scoped data graph.
+- Idempotency keys are scoped to owner, operation and target.
+
+## 6. Personal memory
+
+Kabayan owns memory meaning and lifecycle policy while reusing suitable Andalus storage/retrieval/indexing infrastructure. Four logical classes:
+- **Episodic:** sourced events and interactions.
+- **Semantic:** facts, entities, concepts and relationships.
+- **Procedural:** preferences, habits and recurring workflows.
+- **Prospective:** intentions, commitments, reminders and follow-ups.
+
+Each record needs stable ID, owner scope, type, typed content, provenance, epistemic status (user-confirmed/source-observed/inferred/proposed), confidence, sensitivity, timestamps, retention, validity interval where relevant, retrieval policy and correction/deletion lineage. These are logical classes, not four required databases. Memory is not automatically truth; never silently promote inference to confirmed fact.
+
+See [Personal Memory Design](PERSONAL_MEMORY.md).
+
+## 7. Conversation and request sequence
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant UI as Kabayan UI
+  participant API as Kabayan API
+  participant C as Coordinator
+  participant M as Memory
+  participant P as Consent / policy
+  participant A as Andalus client
+  participant R as Andalus Runtime
+  participant L as Activity audit
+  User->>UI: Send message
+  UI->>API: Message + conversation reference
+  API->>C: Authenticated owner context + request
+  C->>M: Retrieve eligible scoped context
+  M-->>C: Memories + provenance
+  C->>P: Evaluate operation and context use
+  P-->>C: Allowed / approval required / denied
+  alt Approval required
+    C-->>UI: Present scoped approval
+    User->>UI: Approve or reject
+    UI->>API: Decision
+    API->>P: Record decision
+    P-->>C: Decision + expiry/scope
+  else Denied
+    C-->>UI: Explain denial
+  end
+  opt Operation allowed
+    C->>A: Invoke verified Runtime operation
+    A->>R: Typed request via configured binding
+    R-->>A: Run reference / stream
+    A-->>C: Result or progress
+    C->>L: Record invocation and outcome metadata
+    C->>M: Propose eligible memory updates
+    M-->>C: Stored / pending / rejected
+    C-->>UI: Answer + activity references
+  end
+  UI-->>User: Display answer and controls
+```
+
+This is conceptual. Actual API/event semantics must follow verified Runtime behavior and the separately maintained ARIP contract.
+
+## 8. Run lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> Created
+  Created --> PolicyCheck
+  PolicyCheck --> AwaitingApproval: approval required
+  PolicyCheck --> Submitted: allowed
+  PolicyCheck --> Rejected: denied
+  AwaitingApproval --> Submitted: approved before expiry
+  AwaitingApproval --> Rejected: denied or expired
+  Submitted --> Running
+  Running --> Streaming
+  Streaming --> Running: progress / tool cycle
+  Running --> Succeeded
+  Streaming --> Succeeded
+  Submitted --> CancelRequested
+  Running --> CancelRequested
+  Streaming --> CancelRequested
+  CancelRequested --> Cancelled
+  Submitted --> Failed
+  Running --> Failed
+  Streaming --> Failed
+  Rejected --> [*]
+  Succeeded --> [*]
+  Failed --> [*]
+  Cancelled --> [*]
+```
+
+Normalize statuses for display only; retain raw external status and source IDs. Cancellation requested is not cancellation confirmed. Observer disconnect is not cancellation.
+
+## 9. Proactive work sequence
+
+```mermaid
+flowchart TD
+  E[User-authorized source event] --> N[Normalize event and provenance]
+  N --> F[Owner scope, consent and relevance]
+  F -->|Rejected| D[Discard or minimal audit]
+  F -->|Eligible| T[Evaluate trigger / goal / due time]
+  T --> C{Action class}
+  C -->|Suggestion| S[Create visible suggestion]
+  C -->|Reminder| R[Create durable reminder]
+  C -->|External action| A[Request scoped approval]
+  A -->|Approved| X[Submit bounded task]
+  A -->|Denied / expired| STOP[Close without action]
+  X --> RT[Andalus Runtime capability]
+  RT --> RESULT[Record result and audit]
+  S --> FB[User feedback]
+  R --> FB
+  RESULT --> FB
+```
+
+Every durable job has owner, purpose, trigger/schedule, expiry, policy/grant reference, idempotency key, bounded retry and cancellation path. A model prediction is not consent.
+
+## 10. Connector action sequence
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor User
+  participant K as Kabayan
+  participant G as Consent / grants
+  participant V as Secret vault
+  participant C as Connector
+  participant P as External provider
+  participant A as Audit
+  User->>K: Connect account
+  K->>G: Request minimum scopes and purpose
+  G-->>User: Explain requested access
+  User->>G: Authorize scopes
+  G->>V: Store credentials securely
+  G-->>K: Scoped grant reference
+  K->>C: Read or prepare action
+  C->>G: Revalidate grant and purpose
+  G-->>C: Allowed scope / denied
+  C->>P: Provider API call
+  P-->>C: Result
+  C->>A: Record action metadata and outcome
+  C-->>K: Normalized result
+  K-->>User: Show result and revoke controls
+```
+
+Re-check grant state at action time. Never pass provider secrets through prompts or ordinary tool arguments.
+
+## 11. Security, privacy and observability
+
+- Authenticate at the edge; derive owner and tenant scope server-side.
+- Authorize each operation against resource, purpose and current policy.
+- Treat files, messages, web pages, model output and tool output as untrusted data.
+- Require explicit approval for consequential actions, destructive changes and external sharing unless narrowly scoped automation exists.
+- Bind approvals to action, target, parameters/content, grant, owner, expiry and bounded use; material changes invalidate approval.
+- Audit access, memory mutations, approvals and external actions without logging raw content or secrets.
+- Support inspect, correct, suppress, export and deletion across primary and derived data.
+- Local/in-process calls receive the same policy and audit treatment.
+- Propagate correlation IDs and run/job references; log operation, outcome, latency and failure category, not full prompts or personal payloads.
+
+See [Security and Privacy](SECURITY_AND_PRIVACY.md).
+
+## 12. Candidate module boundaries
+
+| Candidate | Responsibility |
 |---|---|
-| `kabayan-core` | Domain types, personal-agent identity, user/tenant boundaries, shared contracts |
-| `kabayan-runtime` | Personal session lifecycle and coordination of Kabayan-owned services |
-| `kabayan-memory` | Personal memory policies, capture, retrieval, consolidation, correction and lifecycle |
-| `kabayan-profile` | Explicit profile, preferences, working style and consent settings |
-| `kabayan-planner` | Goals, tasks, commitments and plans |
-| `kabayan-proactive` | Trigger evaluation, reminders, suggestions and background personal workflows |
-| `kabayan-connectors` | Email, calendar, files, messaging and other user-authorized sources |
-| `kabayan-integrations-andalus` | ARIP client and mapping to Andalus capabilities and run lifecycle |
-| `kabayan-security` | Personal data access, consent, approvals, export and deletion orchestration |
-| `kabayan-api` | External API and event surfaces |
-| `kabayan-app` | Web/desktop/voice experience |
+| `kabayan-core` | Domain types, owner scope and shared contracts |
+| `kabayan-runtime` | Personal session lifecycle and service coordination |
+| `kabayan-memory` | Capture, retrieval, consolidation and memory lifecycle |
+| `kabayan-profile` | Explicit profile and preferences |
+| `kabayan-planner` | Goals, tasks and commitments |
+| `kabayan-proactive` | Triggers, reminders and bounded background work |
+| `kabayan-connectors` | External ingestion, grants and adapters |
+| `kabayan-integrations-andalus` | Typed client facade over verified Runtime operations |
+| `kabayan-security` | Consent, approval, export and deletion orchestration |
+| `kabayan-api` / `kabayan-app` | Product API and experience surfaces |
 
-Module names are a proposed starting boundary, not a requirement to create empty modules up front. Extract a module when it has a stable API and independent tests.
+These are candidates, not a mandate to create empty modules. Start with the smallest coherent build; extract only when API, ownership and tests are stable.
 
-## Personal memory model
-
-Kabayan owns the personal meaning and policy of memory; it should reuse Andalus Framework/Runtime storage, retrieval, indexing and knowledge infrastructure where suitable.
-
-Four logical memory classes:
-
-1. **Episodic** — what happened, when, in which conversation or activity, and with what source.
-2. **Semantic** — facts, entities, concepts and relationships that appear stable enough to retain.
-3. **Procedural** — preferences, working habits and recurring workflows.
-4. **Prospective** — intentions, commitments, reminders, deadlines and future follow-ups.
-
-Every retained item should carry provenance, confidence, timestamps, scope/owner, sensitivity classification, retention policy and correction/deletion lineage. These are logical categories and need not map to four physical databases.
-
-Memory is not automatically truth. Distinguish user-confirmed facts from inferred or model-generated hypotheses. Provide ways to inspect, correct, suppress, export and delete retained information.
-
-## Privacy, security and trust
-
-- Enforce per-user and per-tenant isolation at every read, write, retrieval and connector boundary.
-- Apply least-privilege connector scopes; do not treat a connected account as blanket consent.
-- Make capture, retention, proactive use and external sharing separately configurable.
-- Preserve source provenance and make consequential inferences reviewable.
-- Require explicit approval for consequential external actions, financial/legal commitments, destructive changes, or sending content to other people unless the user has configured a narrowly scoped automation.
-- Record auditable decisions for authentication, authorization, capability invocation, approvals, memory mutation and connector actions.
-- Support data export and deletion, including derived indexes and caches, subject to clearly documented retention/legal constraints.
-- Do not bypass authorization, policy or audit when using in-process communication.
-
-## Andalus interaction strategy
-
-Kabayan uses a typed integration adapter over the Andalus communication and runtime APIs. The proposed **ARIP (Andalus Runtime Interaction Profile)** defines the interaction semantics and efficient client/server mapping; it is not a competing agent protocol stack.
-
-- Same JVM: direct typed asynchronous interfaces where lifecycle and security context can be preserved.
-- Separate processes: reuse the existing Andalus gRPC APIs and streaming model where possible.
-- HTTP: use existing REST APIs for compatibility, diagnostics and simple clients.
-- MCP: use for third-party tools and interoperability, not as a mandatory internal Kabayan-to-Andalus hop.
-- A2A/ANP: retain their existing purposes for agent-to-agent interoperability and network discovery; ARIP does not replace them.
-
-Batch related operations and stream long-running runs/events. Never trade away policy evaluation, tenant context, approval checks or auditability to reduce overhead.
-
-## Product capability pillars
-
-1. Personal memory and continuity.
-2. Conversational assistant and research support.
-3. Proactive intelligence and reminders.
-4. Personal workspace for projects, notes, tasks and plans.
-5. Authorized automation across personal services.
-6. Personal knowledge graph and cross-project context.
-
-## Delivery roadmap
+## 13. Roadmap and dependencies
 
 | Milestone | Outcome | Exit criteria |
 |---|---|---|
-| M0 — Architecture | Ownership, module boundaries, interaction profile, security and roadmap | Architecture and ADRs reviewed; no duplicate runtime or transport |
-| M1 — Agent foundation | Sessions, typed Andalus client, streaming and run lifecycle | Kabayan can open a session, invoke a capability, observe/cancel a run |
-| M2 — Memory | Four memory classes, provenance, profile and retrieval | User can inspect, correct, export and delete memory |
-| M3 — Proactive | Event-driven triggers, scheduling, reminders and goal tracking | User-controlled proactive jobs with approvals and audit |
-| M4 — Integrations | Email, calendar, files, messaging and external MCP tools | Per-connector scopes, consent and revocation |
-| M5 — Experience | Web/desktop/voice, timeline, memory and approval UI | User can understand and control agent activity |
-| M6 — Advanced intelligence | Multimodal context, cross-project synthesis, long-running workflows and local-first options | Privacy, resource and reliability targets validated |
+| M0 Architecture | Ownership, domain, security and docs | Boundaries and non-goals reviewed |
+| M1 Agent foundation | Identity, conversation/session mapping, typed Runtime client and run lifecycle | Converse, observe and cancel with distinct external IDs and tested failure semantics |
+| M2 Memory | Four classes, provenance, retrieval and controls | Inspect, correct, suppress, export and delete including derived data |
+| M3 Proactive | Durable triggers, reminders and bounded jobs | Consent-gated actions, deduplication, expiry, cancellation and audit |
+| M4 Integrations | User-authorized connectors | Per-connector scopes, revocation and approval tested |
+| M5 Experience | Web/desktop/voice, timeline and controls | User can understand and control activity and personal data |
+| M6 Advanced | Multimodal and long-running workflows | Privacy, reliability and resource targets validated |
 
-M1 can proceed alongside finalization of the ARIP mapping. M2 depends on M1 identity/session context and on an explicit memory lifecycle contract. M3 depends on reliable run lifecycle and event delivery. M4 can proceed incrementally after the connector security model is established.
+M1 establishes identity/session/run foundations. M2 needs stable owner scope and storage lifecycle. M3 depends on durable jobs and approvals. M4 can proceed incrementally after grant/secret design. M5 can evolve in parallel but does not own domain rules. M6 follows evidence from earlier milestones.
 
-## Non-goals for M0/M1
+See [Implementation Roadmap](IMPLEMENTATION_ROADMAP.md).
 
-- No new general-purpose agent runtime inside Kabayan.
-- No new generic plugin, skill or capability registry.
-- No new mandatory MCP server between Kabayan and Andalus.
-- No custom wire protocol or serialization format before proving a gap in existing gRPC/REST/local APIs.
-- No autonomous background actions without user-visible policy and controls.
-- No premature microservice decomposition or empty module proliferation.
+## 14. Non-goals
 
-## M0 acceptance checklist
+- No general-purpose runtime, duplicate plugin/capability registry or transport stack in Kabayan.
+- No mandatory MCP hop between Kabayan and Andalus.
+- No custom wire protocol without evidence and accepted ADR.
+- No Kabayan-specific changes in Andalus repositories.
+- No autonomous background action without visible policy and controls.
+- No silent capture of sensitive personal data.
+- No premature microservices or empty modules.
+- No claims that conceptual APIs or guarantees exist before implementation proves them.
 
-- [x] Product and infrastructure ownership are separated.
-- [x] Personal memory classes and minimum lifecycle controls are defined.
-- [x] Internal communication strategy reuses existing Andalus foundations.
-- [x] Security and approval invariants are explicit.
-- [x] Milestones and dependencies are documented.
-- [x] Establish the dedicated `andalus-ai/kabayan` repository as the home for Kabayan product architecture.
-- [x] Add repository-level engineering guidance in `AGENTS.md` and a root project overview.
-- [x] Inspect current Andalus Runtime REST/gRPC surfaces and document the operation-to-endpoint mapping plus verified gaps.
-- [ ] Trace identifier propagation, service authorization and stream semantics before freezing client contracts.
+## 15. M0 acceptance
+
+- [x] Ownership and non-goals defined.
+- [x] Memory classes and lifecycle principles defined.
+- [x] Andalus integration defers to shared ARIP work.
+- [x] Security, consent and approval invariants defined.
+- [x] Architecture, deployment, sequence, state and proactive diagrams included.
+- [x] Milestones and dependencies documented.
+- [x] Repository guidance and docs index established.
+- [ ] Verify identifier propagation, service authorization and stream semantics before freezing client contracts.
