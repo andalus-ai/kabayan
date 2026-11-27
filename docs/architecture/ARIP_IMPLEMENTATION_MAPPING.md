@@ -8,7 +8,7 @@ Scope: REST resources, operator REST/gRPC surfaces, selected SDK and memory clas
 
 The current Runtime already exposes useful building blocks for a Kabayan integration:
 
-- Agent execution and incremental output through REST.
+- Agent execution and an SSE-formatted response endpoint through REST; the inspected stream path emits one final response event, not verified token/chunk streaming.
 - Session and execution inspection/control through the operator REST API and gRPC `OperatorService`.
 - Capability discovery through operator REST/gRPC.
 - Run interaction snapshots and event-history retrieval through REST.
@@ -27,7 +27,7 @@ However, the inspected APIs do **not** form one uniform client-facing agent API.
 | `session.get` | `GET /api/operator/v1/sessions/{sessionId}`; `OperatorService.GetSession` | Existing operator-session inspection. Identity and resource scope must be enforced by the service layer. |
 | `session.close` | `POST /api/operator/v1/sessions/{sessionId}/close`; `OperatorService.CloseSession`; project-session removal is separately exposed | Close and delete/remove are different semantics. Preserve that distinction. |
 | `agent.invoke` | `POST /api/v1/agents/run` via `AgentResource.run` and `AgentClient.execute` | Existing REST execution entry point. It accepts prompt, strategy, skills, timeout, session/model identifiers and a context map. No corresponding invoke RPC was found in the inspected operator protobuf. |
-| `agent.stream` | `POST /api/v1/agents/stream` using Server-Sent Events and `AgentClient.execute` | Existing REST incremental-output surface. Confirm event framing, terminal/error behavior and client disconnect semantics before wrapping it. |
+| `agent.stream` | `POST /api/v1/agents/stream` using Server-Sent Events and `AgentClient.execute` | SSE framing exists, but the inspected `AgentClient.execute` contract returns one `Uni<AgentResponse>` and the response mapper emits one `data:` frame after completion (or one `error` frame). This is not verified token/chunk streaming; do not advertise it as live token streaming. |
 | `run.submit` | Agent REST `/run`; agent REST `/stream` | The request starts execution through the agent client. The source does not establish that its returned run identifier is interchangeable with every execution/operator identifier. Verify correlation before unifying types. |
 | `run.observe` | `GET /api/v1/agent-interactions/{runId}` and `GET /api/v1/agent-interactions/{runId}/events`; operator execution inspection | Snapshot and history retrieval exist. The `/events` handler returns a JSON history envelope, not a streaming/resumable event feed. |
 | `run.cancel` | `POST /api/operator/v1/executions/{executionId}/cancel`; `OperatorService.CancelExecution` | Existing control operation. Verify how the execution ID relates to the agent run ID returned by `AgentClient.execute`. |
@@ -46,13 +46,13 @@ Source: `api/andalus-api-rest/src/main/java/tech/kayys/andalus/api/rest/AgentRes
 
 - Base path: `/api/v1/agents`
 - `POST /run`: invokes `AgentClient.execute(...)` and maps the result to a JSON response.
-- `POST /stream`: invokes the same client with streaming enabled and emits Server-Sent Events.
+- `POST /stream`: invokes the same client with the request's stream flag enabled and emits an SSE-formatted response.
 - `GET /skills` and `GET /skills/{skillId}`: skill catalog.
 - `GET /health`: skill health summary.
 
-The request includes `prompt`, `systemPrompt`, `strategy`, `skills`, `maxSteps`, `timeout`, `sessionId`, `modelId` and `context`.
+The request includes `prompt`, `systemPrompt`, `strategy`, `skills`, `maxSteps`, `timeout`, `sessionId`, `modelId` and `context`. The response mapper exposes `runId` and `requestId` alongside the answer and execution summary.
 
-The resource's `trustedRequest` derives authenticated user identity from Quarkus `SecurityIdentity`, derives tenant from the trusted identity attribute, and removes identity-shaped keys (`tenantId`, `userId`, roles, permissions and principal fields) from the caller-supplied context map. An authenticated request without a trusted tenant is rejected. Anonymous behavior is a separate policy question and must not be assumed suitable for Kabayan.
+The resource's `trustedRequest` derives authenticated user identity from Quarkus `SecurityIdentity`, derives tenant from the trusted identity attribute, and removes identity-shaped keys (`tenantId`, `userId`, roles, permissions and principal fields) from the caller-supplied context map. An authenticated request without a trusted tenant is rejected. However, the inspected request mapper substitutes the literal tenant `default` when the trusted request has no tenant, and `trustedRequest` does not itself reject anonymous callers. Kabayan must require authenticated identity and a real tenant before invoking this endpoint; do not rely on the Runtime's anonymous fallback for personal data.
 
 ### 3.2 Session and execution controls — REST and gRPC
 
@@ -66,7 +66,7 @@ gRPC: `api/andalus-api-grpc/src/main/proto/andalus/operator/v1/operator.proto` d
 
 The protobuf `OperatorRequestContext` carries correlation ID, request ID and string attributes. The gRPC context resolver derives principal and tenant from the authenticated `SecurityIdentity`, strips caller-provided identity-shaped attributes and populates roles/permissions from trusted identity attributes. The REST resolver follows the same general pattern.
 
-These are operator APIs. The existence of a context resolver is not, by itself, proof that every deployment has authentication enabled or that every operation has the required policy configuration. Kabayan must use a correctly secured Runtime deployment and test tenant/resource isolation end to end.
+These are operator APIs. The service implementations provide the actual guard: `DefaultExecutionOperatorService` and `DefaultSessionOperatorService` call explicit permission checks and require the target resource's tenant to equal the trusted context tenant. Their convenience constructors default to `DenyAllOperatorAuthorization`. The standard policy checks explicit permission grants and requires a tenant for tenant-scoped operations. Important limitation: the inspected ownership predicates compare tenant IDs, not user IDs; tenant authorization is not equivalent to per-user isolation. The context resolvers also permit an anonymous context with empty roles/permissions, which should be denied by the configured policy. The existence of a resolver is not proof that every deployment has authentication enabled or that every operation has the required policy configuration. Kabayan must test tenant and user isolation end to end.
 
 ### 3.3 Run interaction and lifecycle
 
@@ -76,7 +76,7 @@ Sources:
 - `api/andalus-api-rest/src/main/java/tech/kayys/andalus/api/rest/execution/ExecutionResource.java`
 - `api/andalus-api-rest/src/main/java/tech/kayys/andalus/api/rest/execution/CheckpointResource.java`
 
-The interaction resource exposes a run snapshot and an event-history list. The execution resource exposes state, transitions, transition history and recovery assessment/plan/execute. Checkpoint endpoints provide checkpoint persistence/inspection operations.
+The interaction resource exposes a run snapshot and an event-history list. The execution resource exposes state, transitions, transition history and recovery assessment/plan/execute. Checkpoint endpoints provide checkpoint persistence/inspection operations. Unlike the operator resource, the inspected `ExecutionResource` methods call the state machine/recovery coordinator directly and do not resolve `SecurityIdentity`, an `OperatorContext` or an authorization service. Its unit tests exercise these methods without an identity context. No deployment-wide filter guarantee was established by this audit. Treat these general lifecycle/recovery endpoints as unsafe for remote Kabayan control until a server-side authz/resource-ownership boundary is verified.
 
 Do not describe `GET .../events` as a resumable stream: it returns a JSON response containing the current history. Do not promise replay cursors, retention guarantees, idempotency or cross-reconnect stream resumption until the implementation proves them.
 
@@ -160,7 +160,7 @@ Do not yet expose generic `capability.invoke`, resumable `run.observe`, remote a
 2. Trace operator service authorization for session/execution/capability operations, including tenant/resource scope.
 3. Define Kabayan's own conversation/session identity and explicit mappings to Andalus project-session and operator-session IDs.
 4. Implement a narrow REST client for agent run and SSE, plus a gRPC/REST operator client only for verified controls.
-5. Add contract tests for identity spoofing, tenant mismatch, unauthorized resource access, cancellation and stream termination.
+5. Add contract tests for identity spoofing, anonymous rejection, tenant mismatch, same-tenant cross-user isolation, unauthorized resource access, cancellation and stream termination. Do not bind the unguarded general execution lifecycle endpoints.
 6. Defer new gRPC/protobuf contracts until the REST/SSE and operator APIs are proven insufficient for a reusable first-party client.
 
 ## 7. Source inventory
@@ -178,3 +178,90 @@ Do not yet expose generic `capability.invoke`, resumable `run.observe`, remote a
 - `api/andalus-api-grpc/src/main/proto/andalus/operator/v1/operator.proto`
 - `api/andalus-api-grpc/src/main/proto/andalus_api.proto`
 - `modules/andalus-hermes/src/main/java/tech/kayys/andalus/memory/MemoryExportService.java`
+
+
+## 8. M1 source-trace audit — invocation, IDs, authorization and streaming
+
+Inspected additional Runtime source on 2026-11-26:
+
+- `api/andalus-api-rest/src/main/java/tech/kayys/andalus/api/rest/AgentRunRequestMapper.java`
+- `api/andalus-api-rest/src/main/java/tech/kayys/andalus/api/rest/AgentRunResponseMapper.java`
+- `api/andalus-api-rest/src/main/java/tech/kayys/andalus/agent/core/core/AgentClient.java`
+- `runtime/andalus-runtime/src/main/java/tech/kayys/andalus/runtime/quarkus/AgentClientProducer.java`
+- `runtime/andalus-sandbox/src/main/java/tech/kayys/andalus/operator/runtime/execution/DefaultExecutionOperatorService.java`
+- `runtime/andalus-sandbox/src/main/java/tech/kayys/andalus/operator/runtime/session/DefaultSessionOperatorService.java`
+- `runtime/andalus-sandbox/src/main/java/tech/kayys/andalus/operator/authorization/DefaultOperatorAuthorizationPolicy.java`
+- `runtime/andalus-sandbox/src/main/java/tech/kayys/andalus/operator/runtime/DenyAllOperatorAuthorization.java`
+- `api/andalus-api-rest/src/test/java/tech/kayys/andalus/api/rest/execution/ExecutionResourceTest.java`
+- `modules/andalus-hermes/src/test/java/tech/kayys/andalus/agent/api/AgentRunResponseMapperTest.java`
+- `runtime/andalus-sandbox/src/test/java/tech/kayys/andalus/operator/OperatorAuthorizationDefaultTest.java`
+
+### 8.1 Invocation and response identifiers
+
+The REST flow is verified only to this extent:
+
+1. `AgentResource.run` calls `AgentRunRequestMapper.toAgentRequest(..., false)`.
+2. `AgentRunRequestMapper` builds the agent request, including the supplied `sessionId`, selected strategy, model, context, timeout and stream flag.
+3. `AgentResource` calls `AgentClient.execute(AgentRequest)`.
+4. The exposed `AgentClient` interface returns `Uni<AgentResponse>`.
+5. `AgentRunResponseMapper` serializes `response.runId()` and `response.requestId()` in the HTTP response.
+
+This proves that the HTTP response has a `runId`; it does **not** prove that this value is the same identifier stored in `ExecutionInfo.executionId`, or that it is accepted by the operator cancellation endpoint. The inspected `AgentClient` interface does not expose an execution handle, cancellation token, or a typed mapping to `executionId`. No end-to-end trace from the returned run ID to operator execution registration was established. Keep `RunId` and `ExecutionId` separate in Kabayan and do not wire cancel to a guessed conversion.
+
+The invocation request's `sessionId` is passed into `AgentRequest`; this is not proof that it refers to the same object managed by the operator session service or the gRPC project-session service. Keep the three concepts distinct until an implementation-level mapping is found.
+
+### 8.2 Streaming is SSE framing, not verified token streaming
+
+The inspected stream endpoint calls `AgentClient.execute(...)`, whose declared return type is `Uni<AgentResponse>`, then transforms that single response through `AgentRunResponseMapper.streamData`. The mapper formats one `data: ...\\n\\n` frame containing the completed response answer. A failure is mapped to one `event: error` frame.
+
+The mapper tests assert these exact single-frame strings. The inspected API therefore verifies an SSE-formatted response, but not incremental token/chunk delivery, event IDs, replay, heartbeat, resumability or a multi-event terminal protocol. The client disconnect/cancellation propagation path was not verified. Kabayan should expose this initially as an asynchronous request with an SSE-wrapped final response, not promise a live streaming transcript. A true streaming contract needs a separate source trace and conformance test.
+
+### 8.3 Operator authorization and resource ownership
+
+The inspected operator service implementations enforce two layers:
+
+- `DefaultOperatorAuthorizationPolicy` validates that a permission is registered, that the requested scope matches the permission scope, that the subject has the explicit permission, and (for tenant scope) that a tenant is present. Platform scope also requires a platform-operator role.
+- `DefaultExecutionOperatorService` and `DefaultSessionOperatorService` authorize each operation and then check that the target execution/session exists in the same tenant as the caller's context. Control operations repeat the resource lookup and tenant check before mutating it.
+- The default service constructors use `DenyAllOperatorAuthorization`, which denies all operations unless a configured authorization implementation is supplied.
+
+The resource ownership check is **tenant-only**: it does not compare `OperatorContext.userId()` with `ExecutionInfo.userId()` or `SessionInfo.userId()`. Kabayan must not assume that a tenant-scoped operator permission provides per-user privacy. For a personal agent, require a dedicated principal/owner check at the Kabayan boundary and verify whether the Runtime needs a narrowly scoped user-level authorization extension before exposing shared-tenant controls.
+
+### 8.4 Two distinct execution control surfaces
+
+Do not conflate these APIs:
+
+- `/api/operator/v1/executions/{executionId}/...` delegates to `ExecutionOperatorService`, which performs explicit permission and tenant checks.
+- `/api/v1/executions/{executionId}/...` delegates directly to `ExecutionStateMachine` and `ExecutionRecoveryCoordinator`. The inspected resource has no principal/context/authorization dependency. Its unit tests call the methods directly with no identity context. This source audit did not establish a deployment-wide auth filter that closes the gap.
+
+Kabayan should use only the operator execution surface for controls, and only after policy and resource ownership are verified. Do not call the general execution state-transition or recovery endpoints from a remote personal-agent client.
+
+### 8.5 Agent invocation identity policy
+
+The `AgentResource.trustedRequest` method protects authenticated requests from caller-supplied tenant/user spoofing and strips identity-shaped keys from the context map. However:
+
+- anonymous callers are not rejected by that method;
+- the request mapper defaults a missing tenant to the literal `default`;
+- the authenticated path requires a trusted tenant but does not establish Kabayan-specific per-user session ownership.
+
+Kabayan's adapter must fail closed before network invocation unless it has an authenticated principal and an explicit tenant/owner scope. It must never use the `default` tenant fallback for personal conversations or memory.
+
+### 8.6 M1 contract decisions
+
+| Concern | Verified result | Kabayan decision |
+|---|---|---|
+| Agent result identity | Response contains `runId` and `requestId`; no verified mapping to `executionId` | Keep distinct ID value types; defer operator cancellation wiring until correlation is traced |
+| Session identity | Request forwards `sessionId`; project/operator lifecycle remains separate | Own conversation ID in Kabayan and store explicit external mappings |
+| SSE | One final answer frame or one error frame through the inspected `Uni<AgentResponse>` path | Do not call this token streaming; use a typed final-result contract initially |
+| Operator authorization | Explicit permission plus tenant match; default deny | Use operator APIs only, fail closed, add owner-level isolation for Kabayan |
+| Same-tenant users | Service predicates do not compare user IDs | Treat as unresolved privacy boundary; require owner checks before personal-agent controls |
+| General execution resource | No resource-level identity/authorization visible in inspected source | Do not expose these endpoints remotely |
+| Anonymous agent request | Mapper can default missing tenant to `default` | Kabayan rejects anonymous invocation and never accepts default tenant fallback |
+
+### 8.7 Remaining M1 work
+
+1. Trace where `AgentResponse.runId` is generated and whether an `ExecutionInfo` record is created for the same run; identify the authoritative cancellation handle.
+2. Trace the actual production binding of `AgentClient` and the stream flag through its implementation, not only the REST interface and response mapper.
+3. Verify authentication configuration and any global JAX-RS/gRPC interceptors in the deployable Runtime application; this source audit did not prove deployment behavior.
+4. Decide how user/owner-level isolation is enforced for operator session/execution operations in a single tenant.
+5. Add integration tests proving anonymous rejection, forged identity rejection, cross-tenant denial, same-tenant cross-user denial, and cancellation against the exact invocation handle.
+6. Only after those are resolved, implement Kabayan's typed client adapter. No Andalus source changes are proposed in this M1 documentation step.
