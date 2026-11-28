@@ -25,10 +25,14 @@ Exit: diagrams and docs reviewed, no duplicate runtime/transport, gaps explicit,
 
 ## M1 — Agent foundation
 
+**Current status (2026-11-28):** Bootstrap slice implemented on the M1 branch. The repository now has a Java 25/Maven core artifact, CI verification, owner/personal-space scope types, Kabayan session IDs, namespaced Runtime resource references and an owner-scoped session mapping repository port. Idempotent link semantics and conflict behavior have focused unit tests. This does not yet provide a production persistence adapter, authentication provider, HTTP API or remote Runtime client.
+
+See [ADR 0001 — Java/Maven core bootstrap](decisions/0001-java-maven-core-bootstrap.md).
+
 Work packages:
 1. Inspect actual build system, Java/runtime baseline, dependencies and CI; establish smallest working service layout and health/readiness.
-2. Resolve owner/personal-space scope at trusted edge; propagate typed context; reject caller identity spoofing.
-3. Implement Kabayan conversation/session IDs and durable explicit mappings to external Runtime session refs.
+2. Resolve owner/personal-space scope at trusted edge; propagate typed context; reject caller identity spoofing. (Not implemented in the bootstrap slice.)
+3. [x] Define Kabayan conversation/session IDs and an owner-scoped mapping port to external Runtime session refs. [ ] Add a durable repository implementation and migration tests.
 4. Implement a narrow typed client over verified operations; keep REST/SSE and gRPC bindings behind facade where required; no speculative APIs or independent ARIP fork.
 5. Preserve distinct run/execution/attempt IDs; define progress, terminal/error, timeout, cancellation and disconnect behavior.
 6. Provide minimal headless conversation API and thin client; show activity, errors, approvals and cancellation state.
