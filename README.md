@@ -28,9 +28,19 @@ This repository is the sole home for Kabayan product architecture and implementa
 
 The roadmap is a sequence of validated outcomes, not a commitment to create every proposed module immediately.
 
+## Build
+
+The initial M1 core is a framework-neutral Java 25 / Maven artifact.
+
+```bash
+mvn verify
+```
+
+No HTTP server, authentication provider, database or remote Andalus transport is included in this first slice. See [ADR 0001](docs/architecture/decisions/0001-java-maven-core-bootstrap.md).
+
 ## Project status
 
-The repository is establishing its M0 architecture baseline. Proposed modules and conceptual operations are not implemented APIs. Implementation choices must be based on repository evidence, security review and compatibility with existing Andalus contracts.
+M0 architecture baseline is merged. M1 has started with owner/personal-space value types, distinct Kabayan and Runtime session identities, an owner-scoped session-mapping port and CI verification. The repository port has no production persistence adapter yet. Proposed operations and conceptual flows are not claims of implemented APIs.
 
 ## Contributing
 
